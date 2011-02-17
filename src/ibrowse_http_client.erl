@@ -17,7 +17,8 @@
          start_link/1,
          start/1,
          stop/1,
-         send_req/7
+         send_req/7,
+         local_addr/1
         ]).
 
 -ifdef(debug).
@@ -50,7 +51,8 @@
                 deleted_crlf = false, transfer_encoding,
                 chunk_size, chunk_size_buffer = <<>>,
                 recvd_chunk_size, interim_reply_sent = false,
-                lb_ets_tid, cur_pipeline_size = 0, prev_req_id
+                lb_ets_tid, cur_pipeline_size = 0, prev_req_id,
+                local_addr = {}
                }).
 
 -record(request, {url, method, options, from,
@@ -96,6 +98,10 @@ send_req(Conn_Pid, Url, Headers, Method, Body, Options, Timeout) ->
     gen_server:call(
       Conn_Pid,
       {send_req, {Url, Headers, Method, Body, Options, Timeout}}, Timeout).
+
+
+local_addr(Pid) ->
+    gen_server:call(Pid, local_addr).
 
 %%====================================================================
 %% Server functions
@@ -155,6 +161,9 @@ handle_call(stop, _From, State) ->
     do_close(State),
     do_error_reply(State, closing_on_request),
     {stop, normal, ok, State};
+
+handle_call(local_addr, From, S) ->
+    {reply, {ok, S#state.local_addr}, S};
 
 handle_call(Request, _From, State) ->
     Reply = {unknown_request, Request},
@@ -611,8 +620,10 @@ send_req_1(From,
     case do_connect(Host_1, Port_1, Options, State_2, Conn_timeout) of
         {ok, Sock} ->
             do_trace("Connected! Socket: ~1000.p~n", [Sock]),
+            {ok, {LocalAddr, _}} = inet:sockname(Sock),
             State_3 = State_2#state{socket = Sock,
-                                    connect_timeout = Conn_timeout},
+                                    connect_timeout = Conn_timeout,
+                                    local_addr = LocalAddr},
             send_req_1(From, Url, Headers, Method, Body, Options, Timeout, State_3);
         Err ->
             shutting_down(State_2),
@@ -1519,7 +1530,8 @@ method(lock)      -> "LOCK";
 method(unlock)    -> "UNLOCK";
 method(move)      -> "MOVE";
 method(copy)      -> "COPY";
-method(connect)   -> "CONNECT".
+method(connect)   -> "CONNECT";
+method(subscribe) -> "SUBSCRIBE".
 
 %% From RFC 2616
 %%

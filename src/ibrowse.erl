@@ -85,6 +85,7 @@
          send_req_direct/5,
          send_req_direct/6,
          send_req_direct/7,
+         get_local_addr_direct/2,
          stream_next/1,
          stream_close/1,
          set_max_sessions/3,
@@ -486,6 +487,44 @@ spawn_link_worker_process(Host, Port) ->
 %% @spec stop_worker_process(Conn_pid::pid()) -> ok
 stop_worker_process(Conn_pid) ->
     ibrowse_http_client:stop(Conn_pid).
+
+%%
+%%
+%%
+get_local_addr_direct(Conn_pid, Url) ->
+    try
+        ibrowse_http_client:local_addr(Conn_pid)
+    catch
+    exit:_ ->
+        %% Former connection for ibrowse:send_req_direct has been closed.
+        %% Must do it the expensive way, i.e. initiating another connection.
+        {ok, NewConn_pid} = spawn_link_worker_process(Url),
+        case send_req_direct(NewConn_pid, Url, [], get, [], [{stream_to, {self(), once}}], 30000) of
+            {ibrowse_req_id, Req_id} ->
+                   case ibrowse:stream_next(Req_id) of
+                       ok -> stream_once(Req_id, NewConn_pid, {});
+                       {error, Err} -> {error, Err}
+                   end;
+               {error, Err} -> {error, Err}
+        end
+    end.
+
+stream_once(Req_id, Conn_pid, Acc) ->
+    receive
+       {ibrowse_async_headers, Req_id, _StatCode, _Headers} ->
+           {ok, LocalAddr} = ibrowse_http_client:local_addr(Conn_pid),
+           stream_once(Req_id, Conn_pid, LocalAddr);
+       {ibrowse_async_response, Req_id, _Body} ->
+           case ibrowse:stream_next(Req_id) of
+               ok ->
+                   stream_once(Req_id, Conn_pid, Acc);
+               {error, Err} ->{error, Err}
+           end;
+       {ibrowse_async_response_end, Req_id} ->
+           stop_worker_process(Conn_pid),
+           {ok, Acc}
+    end.
+
 
 %% @doc Same as send_req/3 except that the first argument is the PID
 %% returned by spawn_worker_process/2 or spawn_link_worker_process/2
