@@ -1531,7 +1531,8 @@ method(unlock)    -> "UNLOCK";
 method(move)      -> "MOVE";
 method(copy)      -> "COPY";
 method(connect)   -> "CONNECT";
-method(subscribe) -> "SUBSCRIBE".
+method(subscribe) -> "SUBSCRIBE";
+method(unsubscribe) -> "UNSUBSCRIBE".
 
 %% From RFC 2616
 %%
